@@ -1,4 +1,3 @@
-import dotenv from "dotenv";
 import { Annotation, StateGraph } from "@langchain/langgraph";
 import { z } from "zod";
 import type { ScreeningState, ParsedProfile, NormalizedProfile } from "./screeningTypes";
@@ -7,8 +6,6 @@ import type { CandidateProfile } from "../models/application.model";
 import { computeScreeningResult } from "../services/scoring.service";
 import { invokeWithFallback, parseJsonLoose } from "./llmProvider";
 import { extractStructuredProfile } from "../services/profileExtraction.service";
-
-dotenv.config();
 
 // 1) Define the LangGraph state using Annotation.Root
 export const ScreeningStateAnnotation = Annotation.Root({

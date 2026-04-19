@@ -1,7 +1,4 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 interface LlmInvokeOptions {
   retries?: number;

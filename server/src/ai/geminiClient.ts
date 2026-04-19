@@ -1,7 +1,4 @@
-import dotenv from "dotenv";
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
-
-dotenv.config();
 
 // Gemini client: single place to configure and call the LLM
 export async function runGeminiEcho(prompt: string) {
