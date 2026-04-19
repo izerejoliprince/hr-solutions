@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+:root {
+  --background: #f5f7fb;
+  --foreground: #0f172a;
+  --surface: #ffffff;
+  --surface-muted: #eef2ff;
+  --border: #d6def5;
+  --brand: #0b63f3;
+  --brand-strong: #084dc5;
+  --danger: #dc2626;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
+  background-image:
+    radial-gradient(circle at 8% 10%, rgba(11, 99, 243, 0.12), transparent 34%),
+    radial-gradient(circle at 85% 0%, rgba(14, 165, 233, 0.1), transparent 30%),
+    linear-gradient(180deg, #f8faff 0%, #f3f6fc 100%);
+}
+
+.app-shell {
+  min-height: 100vh;
+  color: #0f172a;
+}
+
+.app-sidebar {
+  background: linear-gradient(170deg, #ffffff 0%, #f2f6ff 100%);
+  border-right: 1px solid var(--border);
+}
+
+.panel {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: 0 14px 30px -26px rgba(15, 23, 42, 0.38);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--brand), #1d88ff);
+  color: #ffffff;
+  border-radius: 0.7rem;
+  border: 1px solid transparent;
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, var(--brand-strong), var(--brand));
+}
+
+.btn-danger {
+  background: linear-gradient(135deg, #ef4444, #dc2626);
+  color: #fff;
+  border-radius: 0.7rem;
+  border: 1px solid transparent;
+  font-weight: 600;
+}
+
+.btn-danger:hover {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+}
+
+html[data-theme="dark"] {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+html[data-theme="light"] {
+  --background: #f4f6fb;
+  --foreground: #101828;
+}
+
+html[data-theme="light"] .bg-zinc-950,
+html[data-theme="light"] .bg-zinc-950\/80,
+html[data-theme="light"] .bg-zinc-950\/60,
+html[data-theme="light"] .bg-zinc-950\/70,
+html[data-theme="light"] .bg-zinc-900,
+html[data-theme="light"] .bg-zinc-900\/40,
+html[data-theme="light"] .bg-zinc-900\/60,
+html[data-theme="light"] .bg-zinc-900\/70 {
+  background-color: #ffffff !important;
+}
+
+html[data-theme="light"] .text-zinc-50,
+html[data-theme="light"] .text-zinc-100,
+html[data-theme="light"] .text-zinc-200,
+html[data-theme="light"] .text-zinc-300,
+html[data-theme="light"] .text-zinc-400,
+html[data-theme="light"] .text-zinc-500,
+html[data-theme="light"] .text-zinc-600,
+html[data-theme="light"] .text-zinc-700 {
+  color: #1f2937 !important;
+}
+
+html[data-theme="light"] .border-zinc-800,
+html[data-theme="light"] .border-zinc-700,
+html[data-theme="light"] .border-zinc-600,
+html[data-theme="light"] .border-zinc-500 {
+  border-color: #d1d5db !important;
+}
+
+html[data-theme="light"] .hover\:bg-zinc-900:hover,
+html[data-theme="light"] .hover\:bg-zinc-800:hover,
+html[data-theme="light"] .hover\:bg-zinc-950:hover {
+  background-color: #f3f4f6 !important;
+}

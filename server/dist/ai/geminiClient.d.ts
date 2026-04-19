@@ -1,0 +1,2 @@
+export declare function runGeminiEcho(prompt: string): Promise<import("@langchain/core/messages").AIMessageChunk<import("@langchain/core/messages").MessageStructure<import("@langchain/core/messages").MessageToolSet>>>;
+//# sourceMappingURL=geminiClient.d.ts.map
