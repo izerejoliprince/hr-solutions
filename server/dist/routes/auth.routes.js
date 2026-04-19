@@ -45,10 +45,11 @@ function signToken(userId, role) {
 function setAuthCookie(res, token) {
     const isProd = process.env.NODE_ENV === "production";
     const cookieDays = Number(process.env.AUTH_COOKIE_DAYS || 30);
+    const sameSitePolicy = isProd ? "none" : "lax";
     res.cookie(auth_middleware_1.authCookieName, token, {
         httpOnly: true,
         secure: isProd,
-        sameSite: "lax",
+        sameSite: sameSitePolicy,
         maxAge: cookieDays * 24 * 60 * 60 * 1000,
     });
 }

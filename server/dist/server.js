@@ -33,6 +33,14 @@ app.use("/uploads", express_1.default.static(uploadsDir));
 app.use("/auth", auth_routes_1.authRouter);
 app.use("/api/jobs", job_routes_1.jobRouter);
 app.use("/api/applications", application_routes_1.applicationRouter);
+// Root route for platform checks (Render opens this by default)
+app.get("/", (_req, res) => {
+    res.status(200).json({
+        service: "HR Pain Solutions API",
+        status: "ok",
+        health: "/health",
+    });
+});
 // Simple health check route
 app.get("/health", (req, res) => {
     res.json({ status: "ok", message: "Backend server is running" });

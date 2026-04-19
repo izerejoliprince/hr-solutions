@@ -36,6 +36,15 @@ app.use("/auth", authRouter);
 app.use("/api/jobs", jobRouter);
 app.use("/api/applications", applicationRouter);
 
+// Root route for platform checks (Render opens this by default)
+app.get("/", (_req: Request, res: Response) => {
+  res.status(200).json({
+    service: "HR Pain Solutions API",
+    status: "ok",
+    health: "/health",
+  });
+});
+
 // Simple health check route
 app.get("/health", (req: Request, res: Response) => {
   res.json({ status: "ok", message: "Backend server is running" });
