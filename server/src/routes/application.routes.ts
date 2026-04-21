@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import { ApplicationModel } from "../models/application.model";
 import { JobModel } from "../models/job.model";
+import { UserModel } from "../models/user.model";
 import { generateScreeningExplanation } from "../ai/screeningGraph";
 import { generateInterviewQuestions } from "../ai/interviewQuestionGenerator";
 import { generateInterviewFollowupQuestion } from "../ai/interviewFollowupGenerator";
@@ -18,6 +19,21 @@ const router = Router();
 function fingerprintResume(resumeText: string, coverLetterText?: string): string {
   const source = `${resumeText}\n---\n${coverLetterText || ""}`;
   return createHash("sha256").update(source).digest("hex");
+}
+
+function fingerprintEvidence(payload: {
+  projects: Array<{ name: string; url: string }>;
+  certificates: Array<{ title: string; imageUrl: string }>;
+}): string {
+  const normalized = {
+    projects: payload.projects
+      .map((p) => ({ name: p.name.trim(), url: p.url.trim() }))
+      .sort((a, b) => `${a.name}|${a.url}`.localeCompare(`${b.name}|${b.url}`)),
+    certificates: payload.certificates
+      .map((c) => ({ title: c.title.trim(), imageUrl: c.imageUrl.trim() }))
+      .sort((a, b) => `${a.title}|${a.imageUrl}`.localeCompare(`${b.title}|${b.imageUrl}`)),
+  };
+  return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
 }
 
 function canAccessApplication(req: AuthenticatedRequest, application: any): boolean {
@@ -74,6 +90,51 @@ function parseJsonField<T>(value: unknown): T | undefined {
   }
 }
 
+function normalizeProjectUrl(value?: string): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    throw new Error("Invalid project URL");
+  }
+
+  if (!["http:", "https:"].includes(url.protocol)) {
+    throw new Error("Project URL must use http or https");
+  }
+
+  return url.toString();
+}
+
+function isStoredUploadPath(value?: string): boolean {
+  return Boolean(value && /^\/uploads\/[a-zA-Z0-9._-]+$/.test(value));
+}
+
+function normalizeGithubUrl(value?: string): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    throw new Error("Invalid GitHub URL");
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  if (!(hostname === "github.com" || hostname === "www.github.com")) {
+    throw new Error("Project link must be a github.com URL");
+  }
+
+  return url.toString();
+}
+
 function inferEvidenceName(originalName: string, fallback: string): string {
   const noExt = originalName.replace(/\.[a-z0-9]+$/i, "");
   const cleaned = noExt
@@ -105,6 +166,210 @@ function ensureImageMime(file: { mimetype: string }): boolean {
 
 // In-memory file storage for resume / cover letter uploads
 const upload = multer({ storage: multer.memoryStorage() });
+
+type CandidateEvidenceProject = { name: string; url: string };
+type CandidateEvidenceCertificate = {
+  title: string;
+  imageUrl: string;
+  originalName?: string;
+};
+
+async function propagateEvidenceToApplications(
+  userId: string,
+  projects: CandidateEvidenceProject[],
+  certificates: CandidateEvidenceCertificate[],
+  evidenceFingerprint: string,
+): Promise<void> {
+  const applications = await ApplicationModel.find({ candidateUserId: userId }).exec();
+  if (applications.length === 0) return;
+
+  const now = new Date();
+
+  for (const app of applications) {
+    const baseResumeText = app.candidateProfile.resumeText || "";
+    const cover = app.candidateProfile.coverLetterText || "";
+
+    const mappedProjects = projects.map((project) => ({
+      name: project.name,
+      description: "Candidate-maintained project link from dashboard",
+      link: project.url,
+    }));
+
+    const mappedCertifications = certificates.map((certificate) => ({
+      name: certificate.title,
+      issuer: "Candidate upload",
+    }));
+
+    app.candidateProfile.projects = mappedProjects as any;
+    app.candidateProfile.certifications = mappedCertifications as any;
+    app.candidateProfile.certificationAssets = certificates.map((certificate) => ({
+      imageUrl: certificate.imageUrl,
+      ...(certificate.originalName ? { originalName: certificate.originalName } : {}),
+    })) as any;
+    app.candidateProfile.structuredExtractedAt = now;
+    app.candidateProfile.resumeFingerprint = createHash("sha256")
+      .update(`${baseResumeText}\n---\n${cover}\n---\n${evidenceFingerprint}`)
+      .digest("hex");
+
+    await app.save();
+  }
+}
+
+router.get(
+  "/candidate/evidence",
+  requireAuth(["candidate"]),
+  async (req: AuthenticatedRequest, res: Response) => {
+    try {
+      if (!req.userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const user = await UserModel.findById(req.userId)
+        .select("candidateEvidence")
+        .lean()
+        .exec();
+
+      if (!user?.candidateEvidence) {
+        return res.json({
+          projects: [],
+          certificates: [],
+          fingerprint: undefined,
+          updatedAt: undefined,
+        });
+      }
+
+      return res.json(user.candidateEvidence);
+    } catch (error) {
+      console.error("[candidate/evidence] load error", error);
+      return res.status(500).json({ error: "Failed to load candidate evidence" });
+    }
+  },
+);
+
+router.put(
+  "/candidate/evidence",
+  requireAuth(["candidate"]),
+  upload.fields([{ name: "certificateImages", maxCount: 12 }]),
+  async (req: Request, res: Response) => {
+    try {
+      const authReq = req as AuthenticatedRequest;
+      if (!authReq.userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const { projects, existingCertificates, certificateTitles } = req.body as {
+        projects?: string;
+        existingCertificates?: string;
+        certificateTitles?: string;
+      };
+
+      const parsedProjects = parseJsonField<Array<{ name?: string; url?: string }>>(projects) ?? [];
+      const parsedExistingCertificates =
+        parseJsonField<Array<{ title?: string; imageUrl?: string; originalName?: string }>>(
+          existingCertificates,
+        ) ?? [];
+      const parsedCertificateTitles = parseJsonField<string[]>(certificateTitles) ?? [];
+
+      const normalizedProjects: CandidateEvidenceProject[] = [];
+      for (const item of parsedProjects) {
+        const name = String(item?.name || "").trim();
+        let url: string | undefined;
+        try {
+          url = normalizeProjectUrl(item?.url);
+        } catch (error: any) {
+          return res.status(400).json({ error: error?.message || "Invalid project URL" });
+        }
+
+        if (!name && !url) continue;
+        if (!name) {
+          return res.status(400).json({ error: "Project name is required when URL is provided" });
+        }
+        normalizedProjects.push({ name, url: url || "" });
+      }
+
+      const keptCertificates = parsedExistingCertificates.reduce<CandidateEvidenceCertificate[]>(
+        (acc, item) => {
+          const title = String(item?.title || "").trim();
+          const imageUrl = String(item?.imageUrl || "").trim();
+          if (!title || !isStoredUploadPath(imageUrl)) return acc;
+
+          acc.push({
+            title,
+            imageUrl,
+            ...(item?.originalName ? { originalName: item.originalName } : {}),
+          });
+          return acc;
+        },
+        [],
+      );
+
+      const anyReq = req as any;
+      const files = anyReq.files as
+        | {
+            [fieldname: string]: {
+              buffer: Buffer;
+              mimetype: string;
+              originalname: string;
+            }[];
+          }
+        | undefined;
+
+      const certificateImageFiles = files?.certificateImages ?? [];
+      for (const file of certificateImageFiles) {
+        if (!ensureImageMime(file)) {
+          return res.status(400).json({ error: "Certificate uploads must be image files" });
+        }
+      }
+
+      const newCertificates = certificateImageFiles.map((file, index) => {
+        const uploaded = saveUploadedImage(file.buffer, file.originalname);
+        const fallbackTitle = inferEvidenceName(file.originalname, "Certificate");
+        const title = String(parsedCertificateTitles[index] || "").trim() || fallbackTitle;
+        return {
+          title,
+          imageUrl: uploaded.imageUrl,
+          originalName: uploaded.originalName,
+        };
+      });
+
+      const mergedCertificates = [...keptCertificates, ...newCertificates];
+      const evidenceFingerprint = fingerprintEvidence({
+        projects: normalizedProjects.filter((project) => project.url),
+        certificates: mergedCertificates,
+      });
+
+      const user = await UserModel.findById(authReq.userId).exec();
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      user.candidateEvidence = {
+        projects: normalizedProjects.filter((project) => project.url),
+        certificates: mergedCertificates,
+        fingerprint: evidenceFingerprint,
+        updatedAt: new Date(),
+      };
+      await user.save();
+
+      await propagateEvidenceToApplications(
+        authReq.userId,
+        user.candidateEvidence.projects,
+        user.candidateEvidence.certificates,
+        evidenceFingerprint,
+      );
+
+      return res.json({
+        projects: user.candidateEvidence.projects,
+        certificates: user.candidateEvidence.certificates,
+        fingerprint: user.candidateEvidence.fingerprint,
+        updatedAt: user.candidateEvidence.updatedAt,
+      });
+    } catch (error) {
+      console.error("[candidate/evidence] save error", error);
+      return res.status(500).json({ error: "Failed to save candidate evidence" });
+    }
+  },
+);
 
 // Candidate: list own applications
 router.get(
@@ -322,10 +587,13 @@ router.post(
         linkedInUrl,
         availability,
         socialLinks,
+        projects,
       } = req.body;
 
       const parsedAvailability = parseJsonField<CreateApplicationBody["candidateProfile"]["availability"]>(availability);
       const parsedSocialLinks = parseJsonField<CreateApplicationBody["candidateProfile"]["socialLinks"]>(socialLinks);
+      const parsedProjects =
+        parseJsonField<CreateApplicationBody["candidateProfile"]["projects"]>(projects) ?? [];
 
       if (!jobId || !fullName || !email) {
         return res.status(400).json({ error: "Missing required fields: jobId, fullName, email" });
@@ -392,6 +660,33 @@ router.post(
         return res.status(400).json({ error: error?.message || "Invalid LinkedIn URL" });
       }
 
+      const normalizedProjects = [] as NonNullable<
+        CreateApplicationBody["candidateProfile"]["projects"]
+      >;
+      for (const project of parsedProjects) {
+        const name = project?.name?.trim();
+        const description = project?.description?.trim();
+        let normalizedLink: string | undefined;
+        try {
+          normalizedLink = normalizeGithubUrl(project?.link);
+        } catch (error: any) {
+          return res.status(400).json({ error: error?.message || "Invalid GitHub URL" });
+        }
+
+        if (!name && !normalizedLink) {
+          continue;
+        }
+
+        normalizedProjects.push({
+          ...(name ? { name } : { name: inferEvidenceName(project?.link || "", "Project") }),
+          ...(description ? { description } : {}),
+          ...(normalizedLink ? { link: normalizedLink } : {}),
+          ...(project?.technologies && project.technologies.length > 0
+            ? { technologies: project.technologies }
+            : {}),
+        });
+      }
+
       const structured = extractStructuredProfile(resumeText, coverLetterText, {
         ...(headline ? { headline } : {}),
         ...(bio ? { bio } : {}),
@@ -422,7 +717,7 @@ router.post(
           languages: [],
           experiences: structured.experiences,
           education: structured.education,
-          projects: [...structured.projects, ...inferredProjects],
+          projects: [...structured.projects, ...normalizedProjects, ...inferredProjects],
           projectAssets,
           certifications: [...structured.certifications, ...inferredCertifications],
           certificationAssets,

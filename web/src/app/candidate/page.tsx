@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAppDispatch, useAppSelector } from "../../store";
 import type { RootState } from "../../store";
@@ -31,6 +31,17 @@ interface CandidateApplication {
   };
 }
 
+interface EvidenceProject {
+  name: string;
+  url: string;
+}
+
+interface EvidenceCertificate {
+  title: string;
+  imageUrl: string;
+  originalName?: string;
+}
+
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
 
 function assetUrl(path?: string): string | undefined {
@@ -48,6 +59,13 @@ export default function CandidateDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [evidenceProjects, setEvidenceProjects] = useState<EvidenceProject[]>([{ name: "", url: "" }]);
+  const [existingCertificates, setExistingCertificates] = useState<EvidenceCertificate[]>([]);
+  const [newCertificateFiles, setNewCertificateFiles] = useState<File[]>([]);
+  const [newCertificateTitles, setNewCertificateTitles] = useState<string[]>([]);
+  const [evidenceSaving, setEvidenceSaving] = useState(false);
+  const [evidenceMessage, setEvidenceMessage] = useState<string | null>(null);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
 
   useEffect(() => {
     if (auth.status === "loading") return;
@@ -86,9 +104,85 @@ export default function CandidateDashboardPage() {
       }
     };
 
+    const fetchEvidence = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/applications/candidate/evidence`, {
+          credentials: "include",
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const projects = (data.projects || []) as EvidenceProject[];
+        const certificates = (data.certificates || []) as EvidenceCertificate[];
+        setEvidenceProjects(projects.length > 0 ? projects : [{ name: "", url: "" }]);
+        setExistingCertificates(certificates);
+      } catch {
+        // keep dashboard usable even if evidence load fails
+      }
+    };
+
     fetchApplications();
     fetchJobs();
+    fetchEvidence();
   }, [auth.status, auth.user, router]);
+
+  const addProjectRow = () => {
+    setEvidenceProjects((prev) => [...prev, { name: "", url: "" }]);
+  };
+
+  const removeProjectRow = (index: number) => {
+    setEvidenceProjects((prev) => {
+      if (prev.length === 1) return prev;
+      return prev.filter((_, idx) => idx !== index);
+    });
+  };
+
+  const updateProjectField = (index: number, field: keyof EvidenceProject, value: string) => {
+    setEvidenceProjects((prev) =>
+      prev.map((project, idx) => (idx === index ? { ...project, [field]: value } : project)),
+    );
+  };
+
+  const submitEvidence = async (e: FormEvent) => {
+    e.preventDefault();
+    setEvidenceSaving(true);
+    setEvidenceError(null);
+    setEvidenceMessage(null);
+
+    try {
+      const form = new FormData();
+      const cleanedProjects = evidenceProjects
+        .map((project) => ({ name: project.name.trim(), url: project.url.trim() }))
+        .filter((project) => project.name || project.url);
+
+      form.append("projects", JSON.stringify(cleanedProjects));
+      form.append("existingCertificates", JSON.stringify(existingCertificates));
+      form.append("certificateTitles", JSON.stringify(newCertificateTitles));
+      for (const file of newCertificateFiles) {
+        form.append("certificateImages", file);
+      }
+
+      const res = await fetch(`${API_BASE}/api/applications/candidate/evidence`, {
+        method: "PUT",
+        credentials: "include",
+        body: form,
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to save dashboard evidence");
+      }
+
+      setEvidenceProjects((data.projects || []).length > 0 ? data.projects : [{ name: "", url: "" }]);
+      setExistingCertificates(data.certificates || []);
+      setNewCertificateFiles([]);
+      setNewCertificateTitles([]);
+      setEvidenceMessage("Saved. New links and certificates will be considered in screening.");
+    } catch (err: any) {
+      setEvidenceError(err.message || "Failed to save dashboard evidence");
+    } finally {
+      setEvidenceSaving(false);
+    }
+  };
 
   if (auth.status === "loading") {
     return (
@@ -197,6 +291,143 @@ export default function CandidateDashboardPage() {
           </button>
         </header>
 
+        <section className="mb-8 rounded-xl border border-slate-200 bg-white p-5">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-900">Project links and certificate uploads</h2>
+              <p className="text-xs text-slate-600">
+                Keep this updated from your dashboard. Recruiters can review it, and AI screening re-checks changes.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={submitEvidence} className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Projects</p>
+                <button
+                  type="button"
+                  onClick={addProjectRow}
+                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  Add project
+                </button>
+              </div>
+
+              {evidenceProjects.map((project, index) => (
+                <div key={index} className="grid gap-2 rounded-md border border-slate-200 bg-slate-50 p-2 sm:grid-cols-[1fr_1fr_auto]">
+                  <input
+                    type="text"
+                    value={project.name}
+                    onChange={(e) => updateProjectField(index, "name", e.target.value)}
+                    placeholder="Project name"
+                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-200"
+                  />
+                  <input
+                    type="text"
+                    value={project.url}
+                    onChange={(e) => updateProjectField(index, "url", e.target.value)}
+                    placeholder="GitHub / website / demo URL"
+                    className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-200"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeProjectRow(index)}
+                    disabled={evidenceProjects.length === 1}
+                    className="rounded-md border border-slate-300 bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">Certificates</p>
+
+              {existingCertificates.length > 0 && (
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {existingCertificates.map((certificate, index) => (
+                    <div key={`${certificate.imageUrl}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 p-2">
+                      <img
+                        src={assetUrl(certificate.imageUrl)}
+                        alt={certificate.title}
+                        className="h-24 w-full rounded border border-slate-200 object-cover"
+                      />
+                      <input
+                        type="text"
+                        value={certificate.title}
+                        onChange={(e) =>
+                          setExistingCertificates((prev) =>
+                            prev.map((item, idx) =>
+                              idx === index ? { ...item, title: e.target.value } : item,
+                            ),
+                          )
+                        }
+                        className="mt-2 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-200"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExistingCertificates((prev) => prev.filter((_, idx) => idx !== index))
+                        }
+                        className="mt-2 rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-100"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []).slice(0, 10);
+                  setNewCertificateFiles(files);
+                  setNewCertificateTitles(files.map((file) => file.name.replace(/\.[a-z0-9]+$/i, "")));
+                }}
+                className="w-full text-xs text-slate-700"
+              />
+
+              {newCertificateFiles.length > 0 && (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {newCertificateFiles.map((file, index) => (
+                    <div key={`${file.name}-${index}`} className="rounded-md border border-dashed border-slate-300 bg-white p-2">
+                      <p className="truncate text-[11px] text-slate-600">{file.name}</p>
+                      <input
+                        type="text"
+                        value={newCertificateTitles[index] || ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setNewCertificateTitles((prev) =>
+                            prev.map((title, idx) => (idx === index ? value : title)),
+                          );
+                        }}
+                        placeholder="Certificate title"
+                        className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-900 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-200"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {evidenceError && <p className="text-xs text-red-600">{evidenceError}</p>}
+            {evidenceMessage && <p className="text-xs text-emerald-700">{evidenceMessage}</p>}
+
+            <button
+              type="submit"
+              disabled={evidenceSaving}
+              className="rounded-md bg-sky-500 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-sky-400 disabled:opacity-60"
+            >
+              {evidenceSaving ? "Saving..." : "Save dashboard evidence"}
+            </button>
+          </form>
+        </section>
+
         {/* Recommended jobs / search */}
         {hasJobs && (
           <section className="mb-8">
@@ -224,6 +455,16 @@ export default function CandidateDashboardPage() {
             </div>
 
             <div className="space-y-3">
+              <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
+                <p className="text-xs font-semibold text-slate-900">Certificates and project links</p>
+                <p className="mt-1 text-xs text-slate-700">
+                  Upload certificate images and add project GitHub links in the apply form for each role.
+                </p>
+                <p className="mt-1 text-[11px] text-slate-600">
+                  Click <span className="font-semibold">Apply</span> on a job card below to submit them.
+                </p>
+              </div>
+
               {filteredJobs.length === 0 ? (
                 <p className="text-xs text-slate-600">No roles match your search.</p>
               ) : (

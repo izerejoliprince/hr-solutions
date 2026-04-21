@@ -2,6 +2,24 @@ import { Schema, model, type Document, type Model } from "mongoose";
 
 export type UserRole = "owner" | "recruiter" | "candidate";
 
+export interface CandidateProjectLink {
+  name: string;
+  url: string;
+}
+
+export interface CandidateCertificateRecord {
+  title: string;
+  imageUrl: string;
+  originalName?: string;
+}
+
+export interface CandidateEvidenceProfile {
+  projects: CandidateProjectLink[];
+  certificates: CandidateCertificateRecord[];
+  fingerprint?: string;
+  updatedAt?: Date;
+}
+
 export interface User extends Document {
   email: string;
   passwordHash: string;
@@ -10,9 +28,37 @@ export interface User extends Document {
   profilePhotoUrl?: string;
   companyName?: string;
   companyLogoUrl?: string;
+  candidateEvidence?: CandidateEvidenceProfile;
   createdAt: Date;
   updatedAt: Date;
 }
+
+const CandidateProjectLinkSchema = new Schema<CandidateProjectLink>(
+  {
+    name: { type: String, required: true },
+    url: { type: String, required: true },
+  },
+  { _id: false },
+);
+
+const CandidateCertificateRecordSchema = new Schema<CandidateCertificateRecord>(
+  {
+    title: { type: String, required: true },
+    imageUrl: { type: String, required: true },
+    originalName: { type: String },
+  },
+  { _id: false },
+);
+
+const CandidateEvidenceProfileSchema = new Schema<CandidateEvidenceProfile>(
+  {
+    projects: { type: [CandidateProjectLinkSchema], default: [] },
+    certificates: { type: [CandidateCertificateRecordSchema], default: [] },
+    fingerprint: { type: String },
+    updatedAt: { type: Date },
+  },
+  { _id: false },
+);
 
 const UserSchema = new Schema<User>(
   {
@@ -23,6 +69,7 @@ const UserSchema = new Schema<User>(
     profilePhotoUrl: { type: String },
     companyName: { type: String },
     companyLogoUrl: { type: String },
+    candidateEvidence: { type: CandidateEvidenceProfileSchema },
   },
   { timestamps: true },
 );
