@@ -1,6 +1,8 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { createHash } from "crypto";
+import fs from "fs";
+import path from "path";
 import { ApplicationModel } from "../models/application.model";
 import { JobModel } from "../models/job.model";
 import { generateScreeningExplanation } from "../ai/screeningGraph";
@@ -20,11 +22,85 @@ function fingerprintResume(resumeText: string, coverLetterText?: string): string
 
 function canAccessApplication(req: AuthenticatedRequest, application: any): boolean {
   if (!req.userId || !req.userRole) return false;
-  if (req.userRole === "owner" || req.userRole === "recruiter") return true;
+  if (req.userRole === "owner") return true;
   if (req.userRole === "candidate") {
     return String(application.candidateUserId || "") === String(req.userId);
   }
   return false;
+}
+
+function canRecruiterAccessJob(req: AuthenticatedRequest, job: any): boolean {
+  if (!req.userId || !req.userRole) return false;
+  if (req.userRole === "owner") return true;
+  if (req.userRole === "recruiter") {
+    return String(job?.createdBy || "") === String(req.userId);
+  }
+  return false;
+}
+
+function normalizeLinkedInUrl(value?: string): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim().replace(/[\s\u00A0]+/g, " ");
+  if (!trimmed) return undefined;
+
+  const cleaned = trimmed
+    .replace(/^@+/, "")
+    .replace(/[),.;]+$/, "");
+
+  const withScheme = /^https?:\/\//i.test(cleaned) ? cleaned : `https://${cleaned}`;
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    throw new Error("Invalid LinkedIn URL");
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  if (!(hostname === "linkedin.com" || hostname.endsWith(".linkedin.com"))) {
+    throw new Error("LinkedIn URL must be a linkedin.com URL");
+  }
+
+  return url.toString();
+}
+
+function parseJsonField<T>(value: unknown): T | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function inferEvidenceName(originalName: string, fallback: string): string {
+  const noExt = originalName.replace(/\.[a-z0-9]+$/i, "");
+  const cleaned = noExt
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || fallback;
+}
+
+function saveUploadedImage(buffer: Buffer, originalname: string): { imageUrl: string; originalName: string } {
+  const uploadsDir = path.join(process.cwd(), "uploads");
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+
+  const ext = path.extname(originalname || "").toLowerCase() || ".jpg";
+  const safeName = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${ext}`;
+  const fullPath = path.join(uploadsDir, safeName);
+  fs.writeFileSync(fullPath, buffer);
+  return {
+    imageUrl: `/uploads/${safeName}`,
+    originalName: originalname,
+  };
+}
+
+function ensureImageMime(file: { mimetype: string }): boolean {
+  return file.mimetype.startsWith("image/");
 }
 
 // In-memory file storage for resume / cover letter uploads
@@ -155,6 +231,13 @@ router.post("/", async (req: Request, res: Response) => {
       },
     );
 
+    let normalizedLinkedIn: string | undefined;
+    try {
+      normalizedLinkedIn = normalizeLinkedInUrl(body.candidateProfile.linkedInUrl);
+    } catch (error: any) {
+      return res.status(400).json({ error: error?.message || "Invalid LinkedIn URL" });
+    }
+
     const profileInput = body.candidateProfile;
     const candidateProfilePayload = {
       fullName: profileInput.fullName,
@@ -192,7 +275,7 @@ router.post("/", async (req: Request, res: Response) => {
       ...(profileInput.socialLinks ? { socialLinks: profileInput.socialLinks } : {}),
       resumeText: profileInput.resumeText,
       ...(profileInput.coverLetterText ? { coverLetterText: profileInput.coverLetterText } : {}),
-      ...(profileInput.linkedInUrl ? { linkedInUrl: profileInput.linkedInUrl } : {}),
+      ...(normalizedLinkedIn ? { linkedInUrl: normalizedLinkedIn } : {}),
       structuredExtractedAt: new Date(),
       resumeFingerprint: fingerprintResume(
         profileInput.resumeText,
@@ -221,6 +304,8 @@ router.post(
   upload.fields([
     { name: "resumeFile", maxCount: 1 },
     { name: "coverLetterFile", maxCount: 1 },
+    { name: "projectImages", maxCount: 8 },
+    { name: "certificateImages", maxCount: 8 },
   ]),
   async (req: Request, res: Response) => {
     try {
@@ -238,6 +323,9 @@ router.post(
         availability,
         socialLinks,
       } = req.body;
+
+      const parsedAvailability = parseJsonField<CreateApplicationBody["candidateProfile"]["availability"]>(availability);
+      const parsedSocialLinks = parseJsonField<CreateApplicationBody["candidateProfile"]["socialLinks"]>(socialLinks);
 
       if (!jobId || !fullName || !email) {
         return res.status(400).json({ error: "Missing required fields: jobId, fullName, email" });
@@ -266,6 +354,8 @@ router.post(
 
       const resumeFile = files?.resumeFile?.[0];
       const coverLetterFile = files?.coverLetterFile?.[0];
+      const projectImageFiles = files?.projectImages ?? [];
+      const certificateImageFiles = files?.certificateImages ?? [];
 
       let resumeText = "";
       let coverLetterText: string | undefined = undefined;
@@ -282,10 +372,40 @@ router.post(
         return res.status(400).json({ error: "Could not extract text from resume file" });
       }
 
+      for (const file of [...projectImageFiles, ...certificateImageFiles]) {
+        if (!ensureImageMime(file)) {
+          return res.status(400).json({ error: "Project and certificate uploads must be image files" });
+        }
+      }
+
+      const projectAssets = projectImageFiles.map((file) =>
+        saveUploadedImage(file.buffer, file.originalname),
+      );
+      const certificationAssets = certificateImageFiles.map((file) =>
+        saveUploadedImage(file.buffer, file.originalname),
+      );
+
+      let normalizedLinkedIn: string | undefined;
+      try {
+        normalizedLinkedIn = normalizeLinkedInUrl(linkedInUrl);
+      } catch (error: any) {
+        return res.status(400).json({ error: error?.message || "Invalid LinkedIn URL" });
+      }
+
       const structured = extractStructuredProfile(resumeText, coverLetterText, {
         ...(headline ? { headline } : {}),
         ...(bio ? { bio } : {}),
       });
+
+      const inferredProjects = projectImageFiles.map((file) => ({
+        name: inferEvidenceName(file.originalname, "Project evidence"),
+        description: "Uploaded project proof image",
+      }));
+
+      const inferredCertifications = certificateImageFiles.map((file) => ({
+        name: inferEvidenceName(file.originalname, "Certificate evidence"),
+        issuer: "Uploaded by candidate",
+      }));
 
       const application = await ApplicationModel.create({
         job: jobId,
@@ -302,13 +422,15 @@ router.post(
           languages: [],
           experiences: structured.experiences,
           education: structured.education,
-          projects: structured.projects,
-          certifications: structured.certifications,
-          ...(availability ? { availability } : {}),
-          ...(socialLinks ? { socialLinks } : {}),
+          projects: [...structured.projects, ...inferredProjects],
+          projectAssets,
+          certifications: [...structured.certifications, ...inferredCertifications],
+          certificationAssets,
+          ...(parsedAvailability ? { availability: parsedAvailability } : {}),
+          ...(parsedSocialLinks ? { socialLinks: parsedSocialLinks } : {}),
           resumeText,
           coverLetterText,
-          linkedInUrl,
+          ...(normalizedLinkedIn ? { linkedInUrl: normalizedLinkedIn } : {}),
           structuredExtractedAt: new Date(),
           resumeFingerprint: fingerprintResume(resumeText, coverLetterText),
           structuredSource: "heuristic",
@@ -327,6 +449,7 @@ router.post(
 // Fetch a single application with basic job context for recruiter views
 router.get("/:applicationId", requireAuth(["owner", "recruiter"]), async (req: Request, res: Response) => {
   try {
+    const authReq = req as AuthenticatedRequest;
     const { applicationId } = req.params;
 
     const application = await ApplicationModel.findById(applicationId)
@@ -336,6 +459,13 @@ router.get("/:applicationId", requireAuth(["owner", "recruiter"]), async (req: R
 
     if (!application) {
       return res.status(404).json({ error: "Application not found" });
+    }
+
+    if (authReq.userRole === "recruiter") {
+      const job = await JobModel.findById(application.job).select("createdBy").lean().exec();
+      if (!job || String(job.createdBy) !== String(authReq.userId)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
     }
 
     return res.json(application);
@@ -400,6 +530,10 @@ router.get("/:applicationId/interview-questions", requireAuth(["candidate", "rec
     const job = await JobModel.findById(application.job).exec();
     if (!job || !job.interviewConfig || !job.interviewConfig.enabled) {
       return res.status(400).json({ error: "Interview is not enabled for this job" });
+    }
+
+    if (!canRecruiterAccessJob(authReq, job)) {
+      return res.status(403).json({ error: "Forbidden" });
     }
 
     const cfg = job.interviewConfig;
@@ -481,6 +615,10 @@ router.post(
         return res.status(400).json({ error: "Interview is not enabled for this job" });
       }
 
+      if (!canRecruiterAccessJob(authReq, job)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
       if (!job.interviewConfig.allowAiFollowups) {
         return res.status(400).json({ error: "AI follow-up questions are disabled for this job" });
       }
@@ -535,6 +673,10 @@ router.post("/:applicationId/interview/answer-text", requireAuth(["candidate", "
     const job = await JobModel.findById(application.job).exec();
     if (!job || !job.interviewConfig || !job.interviewConfig.enabled) {
       return res.status(400).json({ error: "Interview is not enabled for this job" });
+    }
+
+    if (!canRecruiterAccessJob(authReq, job)) {
+      return res.status(403).json({ error: "Forbidden" });
     }
 
     const lang = languageCode || job.interviewConfig.languageCode || "en";
@@ -593,6 +735,10 @@ router.post("/:applicationId/interview/score", requireAuth(["candidate", "recrui
     const job = await JobModel.findById(application.job).exec();
     if (!job) {
       return res.status(404).json({ error: "Job not found" });
+    }
+
+    if (!canRecruiterAccessJob(authReq, job)) {
+      return res.status(403).json({ error: "Forbidden" });
     }
 
     const scores = await scoreInterview(job as any, application as any, application.interviewResult as any);
