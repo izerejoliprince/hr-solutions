@@ -267,6 +267,41 @@ router.get("/", async (_req: Request, res: Response) => {
   }
 });
 
+router.get("/my", requireAuth(["owner", "recruiter"]), async (req: Request, res: Response) => {
+  try {
+    const anyReq = req as any;
+    const userId = anyReq.userId as string | undefined;
+    const userRole = anyReq.userRole as string | undefined;
+
+    if (!userId || !userRole) {
+      return res.status(401).json({ error: "Missing authenticated user" });
+    }
+
+    const filter = userRole === "owner" ? {} : { createdBy: userId };
+    const jobs = await JobModel.find(filter).sort({ createdAt: -1 }).exec();
+    return res.json(jobs);
+  } catch (error) {
+    console.error("[jobs] my list error", error);
+    return res.status(500).json({ error: "Failed to fetch recruiter jobs" });
+  }
+});
+
+router.get("/:jobId", async (req: Request, res: Response) => {
+  try {
+    const { jobId } = req.params;
+    const job = await JobModel.findById(jobId).lean().exec();
+
+    if (!job) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    return res.json(job);
+  } catch (error) {
+    console.error("[jobs] get job error", error);
+    return res.status(500).json({ error: "Failed to fetch job" });
+  }
+});
+
 router.get("/admin/overview", requireAuth(["owner"]), async (_req: Request, res: Response) => {
   try {
     const jobs = await JobModel.find().sort({ createdAt: -1 }).lean().exec();
@@ -403,6 +438,16 @@ router.post("/:jobId/screen", requireAuth(["owner", "recruiter"]), async (req: R
     const job = await JobModel.findById(jobId).exec();
     if (!job) {
       return res.status(404).json({ error: "Job not found" });
+    }
+
+    const anyReq = req as any;
+    const userId = anyReq.userId as string | undefined;
+    const userRole = anyReq.userRole as string | undefined;
+    if (!userId || !userRole) {
+      return res.status(401).json({ error: "Missing authenticated user" });
+    }
+    if (userRole === "recruiter" && String(job.createdBy) !== String(userId)) {
+      return res.status(403).json({ error: "Not allowed to screen this job" });
     }
 
     const applications = await ApplicationModel.find({ job: job._id as any }).exec();
@@ -543,6 +588,16 @@ router.get(
         return res.status(404).json({ error: "Job not found" });
       }
 
+      const anyReq = req as any;
+      const userId = anyReq.userId as string | undefined;
+      const userRole = anyReq.userRole as string | undefined;
+      if (!userId || !userRole) {
+        return res.status(401).json({ error: "Missing authenticated user" });
+      }
+      if (userRole === "recruiter" && String(job.createdBy) !== String(userId)) {
+        return res.status(403).json({ error: "Not allowed to access this job" });
+      }
+
       const applications = await ApplicationModel.find({ job: job._id as any })
         .populate({ path: "candidateUserId", select: "profilePhotoUrl name" })
         .exec();
@@ -580,6 +635,16 @@ router.post(
 
       if (!job) {
         return res.status(404).json({ error: "Job not found" });
+      }
+
+      const anyReq = req as any;
+      const userId = anyReq.userId as string | undefined;
+      const userRole = anyReq.userRole as string | undefined;
+      if (!userId || !userRole) {
+        return res.status(401).json({ error: "Missing authenticated user" });
+      }
+      if (userRole === "recruiter" && String(job.createdBy) !== String(userId)) {
+        return res.status(403).json({ error: "Not allowed to access this job" });
       }
 
       const applications = await ApplicationModel.find({ job: job._id as any }).exec();

@@ -21,6 +21,27 @@ interface ExistingApplication {
   };
 }
 
+interface JobDetail {
+  _id: string;
+  title: string;
+  companyName: string;
+  companyLogoUrl?: string;
+  location?: string;
+  employmentType?: string;
+  description: string;
+  responsibilities?: string;
+  requirements?: string;
+  requiredSkills: string[];
+  niceToHaveSkills?: string[];
+  openings?: number;
+  minExperienceYears?: number;
+  educationLevel?: string;
+  rollingBasis?: boolean;
+  applicationDeadline?: string;
+  salaryMin?: number;
+  salaryMax?: number;
+}
+
 export default function ApplyPage() {
   const auth = useAppSelector((s: RootState) => s.auth);
   const router = useRouter();
@@ -42,8 +63,31 @@ export default function ApplyPage() {
   const [error, setError] = useState<string | null>(null);
   const [checkingExisting, setCheckingExisting] = useState(true);
   const [existingApplication, setExistingApplication] = useState<ExistingApplication | null>(null);
+  const [job, setJob] = useState<JobDetail | null>(null);
+  const [jobLoading, setJobLoading] = useState(true);
+  const [jobError, setJobError] = useState<string | null>(null);
 
   useEffect(() => {
+    const loadJob = async () => {
+      if (!jobId) {
+        setJobLoading(false);
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/jobs/${jobId}`);
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to load job details");
+        }
+        setJob(data);
+      } catch (err: any) {
+        setJobError(err.message || "Failed to load job details");
+      } finally {
+        setJobLoading(false);
+      }
+    };
+
     const loadExisting = async () => {
       if (!auth.user || auth.user.role !== "candidate" || !jobId) {
         setCheckingExisting(false);
@@ -81,6 +125,7 @@ export default function ApplyPage() {
       }
     };
 
+    void loadJob();
     void loadExisting();
   }, [auth.user, jobId]);
 
@@ -181,7 +226,89 @@ export default function ApplyPage() {
               Back to dashboard
             </button>
           </div>
-          <p className="text-sm text-slate-600">Job ID: {String(jobId)}</p>
+          {jobLoading ? (
+            <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              Loading job details...
+            </div>
+          ) : jobError ? (
+            <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {jobError}
+            </div>
+          ) : job ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">{job.title}</h3>
+                  <p className="text-sm text-slate-600">
+                    {job.companyName}
+                    {job.location ? ` · ${job.location}` : ""}
+                    {job.employmentType ? ` · ${job.employmentType.replace("_", " ")}` : ""}
+                  </p>
+                </div>
+                {typeof job.salaryMin === "number" || typeof job.salaryMax === "number" ? (
+                  <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] text-slate-700">
+                    Salary:{" "}
+                    {typeof job.salaryMin === "number" ? job.salaryMin.toLocaleString() : "Open"}
+                    {" - "}
+                    {typeof job.salaryMax === "number" ? job.salaryMax.toLocaleString() : "Open"}
+                  </div>
+                ) : null}
+              </div>
+              <p className="mt-3 text-sm leading-6 text-slate-700 whitespace-pre-line">{job.description}</p>
+              {job.responsibilities && (
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Responsibilities</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-700 whitespace-pre-line">{job.responsibilities}</p>
+                </div>
+              )}
+              {job.requirements && (
+                <div className="mt-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Requirements</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-700 whitespace-pre-line">{job.requirements}</p>
+                </div>
+              )}
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {job.requiredSkills?.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Required skills</p>
+                    <p className="mt-1 text-sm text-slate-700">{job.requiredSkills.join(", ")}</p>
+                  </div>
+                )}
+                {(job.niceToHaveSkills ?? []).length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Nice to have</p>
+                    <p className="mt-1 text-sm text-slate-700">{(job.niceToHaveSkills ?? []).join(", ")}</p>
+                  </div>
+                )}
+                {typeof job.openings === "number" && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Openings</p>
+                    <p className="mt-1 text-sm text-slate-700">{job.openings}</p>
+                  </div>
+                )}
+                {typeof job.minExperienceYears === "number" && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Experience</p>
+                    <p className="mt-1 text-sm text-slate-700">At least {job.minExperienceYears} years</p>
+                  </div>
+                )}
+                {job.educationLevel && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Education</p>
+                    <p className="mt-1 text-sm text-slate-700">{job.educationLevel}</p>
+                  </div>
+                )}
+                {job.rollingBasis === false && job.applicationDeadline && (
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Deadline</p>
+                    <p className="mt-1 text-sm text-slate-700">{new Date(job.applicationDeadline).toLocaleDateString()}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-600">Job details unavailable.</p>
+          )}
 
           {checkingExisting ? (
             <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
