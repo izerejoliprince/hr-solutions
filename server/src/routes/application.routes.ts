@@ -569,8 +569,6 @@ router.post(
   upload.fields([
     { name: "resumeFile", maxCount: 1 },
     { name: "coverLetterFile", maxCount: 1 },
-    { name: "projectImages", maxCount: 8 },
-    { name: "certificateImages", maxCount: 8 },
   ]),
   async (req: Request, res: Response) => {
     try {
@@ -587,13 +585,10 @@ router.post(
         linkedInUrl,
         availability,
         socialLinks,
-        projects,
       } = req.body;
 
       const parsedAvailability = parseJsonField<CreateApplicationBody["candidateProfile"]["availability"]>(availability);
       const parsedSocialLinks = parseJsonField<CreateApplicationBody["candidateProfile"]["socialLinks"]>(socialLinks);
-      const parsedProjects =
-        parseJsonField<CreateApplicationBody["candidateProfile"]["projects"]>(projects) ?? [];
 
       if (!jobId || !fullName || !email) {
         return res.status(400).json({ error: "Missing required fields: jobId, fullName, email" });
@@ -622,8 +617,6 @@ router.post(
 
       const resumeFile = files?.resumeFile?.[0];
       const coverLetterFile = files?.coverLetterFile?.[0];
-      const projectImageFiles = files?.projectImages ?? [];
-      const certificateImageFiles = files?.certificateImages ?? [];
 
       let resumeText = "";
       let coverLetterText: string | undefined = undefined;
@@ -640,19 +633,6 @@ router.post(
         return res.status(400).json({ error: "Could not extract text from resume file" });
       }
 
-      for (const file of [...projectImageFiles, ...certificateImageFiles]) {
-        if (!ensureImageMime(file)) {
-          return res.status(400).json({ error: "Project and certificate uploads must be image files" });
-        }
-      }
-
-      const projectAssets = projectImageFiles.map((file) =>
-        saveUploadedImage(file.buffer, file.originalname),
-      );
-      const certificationAssets = certificateImageFiles.map((file) =>
-        saveUploadedImage(file.buffer, file.originalname),
-      );
-
       let normalizedLinkedIn: string | undefined;
       try {
         normalizedLinkedIn = normalizeLinkedInUrl(linkedInUrl);
@@ -660,47 +640,38 @@ router.post(
         return res.status(400).json({ error: error?.message || "Invalid LinkedIn URL" });
       }
 
-      const normalizedProjects = [] as NonNullable<
-        CreateApplicationBody["candidateProfile"]["projects"]
-      >;
-      for (const project of parsedProjects) {
-        const name = project?.name?.trim();
-        const description = project?.description?.trim();
-        let normalizedLink: string | undefined;
-        try {
-          normalizedLink = normalizeGithubUrl(project?.link);
-        } catch (error: any) {
-          return res.status(400).json({ error: error?.message || "Invalid GitHub URL" });
-        }
-
-        if (!name && !normalizedLink) {
-          continue;
-        }
-
-        normalizedProjects.push({
-          ...(name ? { name } : { name: inferEvidenceName(project?.link || "", "Project") }),
-          ...(description ? { description } : {}),
-          ...(normalizedLink ? { link: normalizedLink } : {}),
-          ...(project?.technologies && project.technologies.length > 0
-            ? { technologies: project.technologies }
-            : {}),
-        });
-      }
+      const candidateUser = await UserModel.findById(authReq.userId)
+        .select("candidateEvidence")
+        .lean()
+        .exec();
+      const evidenceProjects = candidateUser?.candidateEvidence?.projects ?? [];
+      const evidenceCertificates = candidateUser?.candidateEvidence?.certificates ?? [];
+      const evidenceFingerprint = candidateUser?.candidateEvidence?.fingerprint;
 
       const structured = extractStructuredProfile(resumeText, coverLetterText, {
         ...(headline ? { headline } : {}),
         ...(bio ? { bio } : {}),
       });
 
-      const inferredProjects = projectImageFiles.map((file) => ({
-        name: inferEvidenceName(file.originalname, "Project evidence"),
-        description: "Uploaded project proof image",
+      const dashboardProjects = evidenceProjects.map((project) => ({
+        name: project.name,
+        description: "Candidate-maintained project link from dashboard",
+        link: project.url,
       }));
 
-      const inferredCertifications = certificateImageFiles.map((file) => ({
-        name: inferEvidenceName(file.originalname, "Certificate evidence"),
-        issuer: "Uploaded by candidate",
+      const dashboardCertifications = evidenceCertificates.map((certificate) => ({
+        name: certificate.title,
+        issuer: "Candidate upload",
       }));
+
+      const certificationAssets = evidenceCertificates.map((certificate) => ({
+        imageUrl: certificate.imageUrl,
+        ...(certificate.originalName ? { originalName: certificate.originalName } : {}),
+      }));
+
+      const applicationFingerprint = createHash("sha256")
+        .update(`${resumeText}\n---\n${coverLetterText || ""}\n---\n${evidenceFingerprint || ""}`)
+        .digest("hex");
 
       const application = await ApplicationModel.create({
         job: jobId,
@@ -717,9 +688,9 @@ router.post(
           languages: [],
           experiences: structured.experiences,
           education: structured.education,
-          projects: [...structured.projects, ...normalizedProjects, ...inferredProjects],
-          projectAssets,
-          certifications: [...structured.certifications, ...inferredCertifications],
+          projects: [...structured.projects, ...dashboardProjects],
+          projectAssets: [],
+          certifications: [...structured.certifications, ...dashboardCertifications],
           certificationAssets,
           ...(parsedAvailability ? { availability: parsedAvailability } : {}),
           ...(parsedSocialLinks ? { socialLinks: parsedSocialLinks } : {}),
@@ -727,7 +698,7 @@ router.post(
           coverLetterText,
           ...(normalizedLinkedIn ? { linkedInUrl: normalizedLinkedIn } : {}),
           structuredExtractedAt: new Date(),
-          resumeFingerprint: fingerprintResume(resumeText, coverLetterText),
+          resumeFingerprint: applicationFingerprint,
           structuredSource: "heuristic",
         },
       } as any);

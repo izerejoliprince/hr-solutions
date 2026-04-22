@@ -18,6 +18,13 @@ interface CandidateProfile {
   headline?: string;
   location?: string;
   linkedInUrl?: string;
+  projects?: Array<{
+    name: string;
+    description?: string;
+    link?: string;
+  }>;
+  projectAssets?: Array<{ imageUrl: string; originalName?: string }>;
+  certificationAssets?: Array<{ imageUrl: string; originalName?: string }>;
   resumeText: string;
 }
 
@@ -212,6 +219,92 @@ export default function ApplicationDetailPage() {
                   {candidateProfile.email}
                 </p>
                 </div>
+              </div>
+            </div>
+
+            <div className="panel p-5 space-y-3">
+              <h2 className="text-sm font-semibold text-slate-900">Projects shared by candidate</h2>
+              {candidateProfile.projects && candidateProfile.projects.length > 0 ? (
+                <div className="space-y-2">
+                  {candidateProfile.projects.map((project, idx) => (
+                    <div
+                      key={`project-link-${idx}`}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2"
+                    >
+                      <p className="text-xs font-semibold text-slate-900">{project.name || `Project ${idx + 1}`}</p>
+                      {project.description && (
+                        <p className="mt-0.5 text-[11px] text-slate-600">{project.description}</p>
+                      )}
+                      {project.link && (
+                        <a
+                          href={project.link}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-1 inline-block text-[11px] font-medium text-slate-700 underline hover:text-slate-900"
+                        >
+                          Open GitHub repository
+                        </a>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-500">No project links provided.</p>
+              )}
+            </div>
+
+            <div className="panel p-5 space-y-3">
+              <h2 className="text-sm font-semibold text-slate-900">Verification evidence</h2>
+              <p className="text-xs text-slate-600">Candidate-uploaded project and certificate images.</p>
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-slate-700">Project images</p>
+                {candidateProfile.projectAssets && candidateProfile.projectAssets.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {candidateProfile.projectAssets.map((asset, idx) => (
+                      <a
+                        key={`project-${idx}`}
+                        href={assetUrl(asset.imageUrl)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="overflow-hidden rounded-lg border border-slate-200 bg-white"
+                      >
+                        <img
+                          src={assetUrl(asset.imageUrl)}
+                          alt={asset.originalName || `Project evidence ${idx + 1}`}
+                          className="h-28 w-full object-cover"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500">No project images uploaded.</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-slate-700">Certificate images</p>
+                {candidateProfile.certificationAssets && candidateProfile.certificationAssets.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    {candidateProfile.certificationAssets.map((asset, idx) => (
+                      <a
+                        key={`cert-${idx}`}
+                        href={assetUrl(asset.imageUrl)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="overflow-hidden rounded-lg border border-slate-200 bg-white"
+                      >
+                        <img
+                          src={assetUrl(asset.imageUrl)}
+                          alt={asset.originalName || `Certificate evidence ${idx + 1}`}
+                          className="h-28 w-full object-cover"
+                        />
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500">No certificate images uploaded.</p>
+                )}
               </div>
             </div>
 

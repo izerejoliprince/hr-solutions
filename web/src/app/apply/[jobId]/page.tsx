@@ -30,7 +30,11 @@ export default function ApplyPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [headline, setHeadline] = useState("");
+  const [bio, setBio] = useState("");
   const [location, setLocation] = useState("");
+  const [availabilityStatus, setAvailabilityStatus] = useState<"" | "available" | "open_to_opportunities" | "not_available">("");
+  const [availabilityType, setAvailabilityType] = useState<"" | "full_time" | "part_time" | "contract">("");
+  const [availabilityStartDate, setAvailabilityStartDate] = useState("");
   const [linkedInUrl, setLinkedInUrl] = useState("");
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [coverLetterFile, setCoverLetterFile] = useState<File | null>(null);
@@ -65,7 +69,11 @@ export default function ApplyPage() {
           setFullName(existing?.candidateProfile?.fullName || "");
           setEmail(existing?.candidateProfile?.email || "");
           setHeadline(existing?.candidateProfile?.headline || "");
+          setBio(existing?.candidateProfile?.bio || "");
           setLocation(existing?.candidateProfile?.location || "");
+          setAvailabilityStatus(existing?.candidateProfile?.availability?.status || "");
+          setAvailabilityType(existing?.candidateProfile?.availability?.type || "");
+          setAvailabilityStartDate(existing?.candidateProfile?.availability?.startDate || "");
           setLinkedInUrl(existing?.candidateProfile?.linkedInUrl || "");
         }
       } finally {
@@ -108,8 +116,19 @@ export default function ApplyPage() {
       form.append("fullName", fullName);
       form.append("email", email);
       if (headline) form.append("headline", headline);
+      if (bio) form.append("bio", bio);
       if (location) form.append("location", location);
       if (linkedInUrl) form.append("linkedInUrl", linkedInUrl);
+      if (availabilityStatus || availabilityType || availabilityStartDate) {
+        form.append(
+          "availability",
+          JSON.stringify({
+            ...(availabilityStatus ? { status: availabilityStatus } : {}),
+            ...(availabilityType ? { type: availabilityType } : {}),
+            ...(availabilityStartDate ? { startDate: availabilityStartDate } : {}),
+          }),
+        );
+      }
       form.append("resumeFile", resumeFile);
       if (coverLetterFile) form.append("coverLetterFile", coverLetterFile);
 
@@ -146,6 +165,7 @@ export default function ApplyPage() {
               <li>• Mention 3-5 core skills related to the role.</li>
               <li>• Use a direct headline that reflects your specialization.</li>
               <li>• Add LinkedIn if it contains relevant project proof.</li>
+              <li>• Keep project links and certificate uploads updated from your dashboard evidence page.</li>
             </ul>
           </div>
         </aside>
@@ -218,6 +238,17 @@ export default function ApplyPage() {
           </div>
 
           <div className="space-y-1 text-sm">
+            <label className="block font-semibold text-slate-700">Bio (optional)</label>
+            <textarea
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              disabled={!!existingApplication}
+              rows={3}
+              className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+            />
+          </div>
+
+          <div className="space-y-1 text-sm">
             <label className="block font-semibold text-slate-700">Location (optional)</label>
             <input
               type="text"
@@ -231,12 +262,55 @@ export default function ApplyPage() {
           <div className="space-y-1 text-sm">
             <label className="block font-semibold text-slate-700">LinkedIn URL (optional)</label>
             <input
-              type="url"
+              type="text"
+              placeholder="linkedin.com/in/your-profile"
               value={linkedInUrl}
               onChange={(e) => setLinkedInUrl(e.target.value)}
               disabled={!!existingApplication}
               className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
             />
+            <p className="text-[11px] text-slate-500">You can paste with or without https://</p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1 text-sm">
+              <label className="block font-semibold text-slate-700">Availability status (optional)</label>
+              <select
+                value={availabilityStatus}
+                onChange={(e) => setAvailabilityStatus(e.target.value as any)}
+                disabled={!!existingApplication}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+              >
+                <option value="">Select</option>
+                <option value="available">Available</option>
+                <option value="open_to_opportunities">Open to opportunities</option>
+                <option value="not_available">Not available</option>
+              </select>
+            </div>
+            <div className="space-y-1 text-sm">
+              <label className="block font-semibold text-slate-700">Availability type (optional)</label>
+              <select
+                value={availabilityType}
+                onChange={(e) => setAvailabilityType(e.target.value as any)}
+                disabled={!!existingApplication}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+              >
+                <option value="">Select</option>
+                <option value="full_time">Full-time</option>
+                <option value="part_time">Part-time</option>
+                <option value="contract">Contract</option>
+              </select>
+            </div>
+            <div className="space-y-1 text-sm">
+              <label className="block font-semibold text-slate-700">Start date (optional)</label>
+              <input
+                type="date"
+                value={availabilityStartDate}
+                onChange={(e) => setAvailabilityStartDate(e.target.value)}
+                disabled={!!existingApplication}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+              />
+            </div>
           </div>
 
           <div className="space-y-1 text-sm">
