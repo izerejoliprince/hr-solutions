@@ -280,7 +280,7 @@ Health check:
 - `/health`
 ## Project Demo
 
-[Watch the project demo on YouTube](https://youtu.be/kYrL_cpoVDo).
+[Watch the project demo on YouTube](https://youtu.be/K4dM0FedN7k).
 
 ## Project Status
 
