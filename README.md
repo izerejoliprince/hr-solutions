@@ -1,39 +1,32 @@
-# HR-AI-Startup
+# HR Pain Solutions
 
-Production-grade AI recruitment platform with deterministic, explainable screening and AI-assisted interviews.
+An AI-assisted hiring workspace for candidate screening, structured interviews, and recruiter review. The platform combines language-model-assisted evidence extraction with deterministic candidate scoring so teams can inspect how a recommendation was produced.
 
-## Overview
+> Screening scores support recruiter review; they are not a substitute for human judgment.
 
-This system is designed for engineering reliability, recruiter trust, and evaluator transparency.
+## Product Overview
 
-Core principles:
-- LLMs are used for semantic extraction and relevance tagging.
-- Final screening score is deterministic and reproducible.
-- Every stage has validation, fallback behavior, and operational guardrails.
+- Candidates create a profile, apply to roles, and complete structured interviews.
+- Recruiters manage jobs, review ranked applications, and configure interview criteria.
+- Administrators can review platform activity.
+- Screening uses AI for structured extraction and relevance tagging; the final match score is calculated deterministically from job criteria.
 
-## Repository Structure
+## Repository Layout
 
-- [server](server): Express + TypeScript API, AI orchestration, scoring engine
-- [web](web): Next.js frontend for candidates, recruiters, and admins
+| Path | Purpose |
+| --- | --- |
+| `server/` | Express API, MongoDB models, authentication, screening, and interview services |
+| `web/` | Next.js application for candidates, recruiters, and administrators |
+| `scripts/` | Local operational utilities |
 
-## Tech Stack
+## Technology
 
-Frontend:
-- Next.js App Router
-- React + Redux Toolkit
-- Axios
+- **Web:** Next.js 16, React 19, TypeScript, Redux Toolkit, Tailwind CSS
+- **API:** Node.js, Express 5, TypeScript, Mongoose, Zod
+- **AI orchestration:** LangGraph, Gemini, Groq fallback, and LangSmith-compatible tracing
+- **Data:** MongoDB
 
-Backend:
-- Node.js + Express
-- MongoDB + Mongoose
-- Zod for runtime schema validation
-
-AI Layer:
-- LangGraph for multi-step orchestration
-- Gemini primary provider with fallback provider strategy
-- LangSmith-ready trace patterns
-
-## Current Screening Architecture
+## Screening Architecture
 
 Pipeline flow:
 1. Resume/Cover Letter intake
@@ -48,64 +41,6 @@ Pipeline flow:
 Important implementation note:
 - Final `matchScore` is deterministic.
 - LLM does not directly assign the final candidate score.
-
-### Multi-Agent Flow Diagram
-
-
-
-
-Candidate Application
-(Resume + Cover Letter + Profile Fields)
-                |
-                v
-      Fingerprint Check
- (reuse structured data if unchanged)
-                |
-                v
-        Parsing Agent (LLM)
-   (structured extraction)
-                |
-                v
-     Section Validation (Zod)
-     + Partial Recovery Logic
-                |
-        ---------------------
-        |                   |
-        v                   v
-Relevance Agent        Heuristic Fallback
-(tag relevanceScore)   (if LLM fails)
-        |                   |
-        -----------+--------
-                    |
-                    v
-      Deterministic Scoring Engine
-                    |
-    -----------------------------------------
-    |            |            |             |
-    v            v            v             v
- Skills       Experience    Education     Projects
- Component    Component     Component     Component
-(required %)  (years-based) (match level) (relevant work)
-    |            |            |             |
-    -----------------------------------------
-                    |
-                    v
-       Aggregate Weighted Score
-     (matchScore = deterministicScore)
-                    |
-                    v
-     Strengths + Gaps + Recommendation
-                    |
-                    v
-        Explanation Agent (LLM)
-      (optional recruiter narrative)
-                    |
-                    v
-     Persist Result (MongoDB Database)
-                    |
-                    v
-        Recruiter Dashboard View
- (ranked candidates + detailed insights)
 
 ```mermaid
 flowchart TD
@@ -227,51 +162,106 @@ Candidate profile supports:
 
 ## Environment Variables
 
-Backend (.env in [server](server)):
-- `PORT`
-- `CORS_ORIGIN`
-- `MONGODB_URI`
-- `MONGODB_CONNECT_RETRIES`
-- `MONGODB_SERVER_SELECTION_TIMEOUT_MS`
-- `MONGODB_CONNECT_TIMEOUT_MS`
-- `MONGODB_SOCKET_TIMEOUT_MS`
-- `JWT_SECRET`
-- `JWT_EXPIRES_IN`
-- `AUTH_COOKIE_DAYS`
-- `GOOGLE_API_KEY`
-- `CHATGROQ_API_KEY`
-- `GEMINI_MODEL`
-- `CHATGROQ_MODEL`
-- `LLM_PROVIDER_TIMEOUT_MS`
+Create `server/.env` and `web/.env.local` locally. These files are ignored by Git; never commit real credentials.
 
-Frontend (.env.local in [web](web)):
-- `NEXT_PUBLIC_API_BASE_URL`
+| Variable | Service | Required / default |
+| --- | --- | --- |
+| `MONGODB_URI` | API | Required for database-backed features |
+| `JWT_SECRET` | API | Required for authentication; use a long, unique random value |
+| `GOOGLE_API_KEY` | API | Credential for Gemini-powered features |
+| `CHATGROQ_API_KEY` | API | Credential for Groq fallback features |
+| `PORT` | API | Optional; defaults to `4000` |
+| `CORS_ORIGIN` | API | Optional; defaults to `http://localhost:3000` |
+| `MONGODB_CONNECT_RETRIES` | API | Optional; defaults to `5` |
+| `MONGODB_SERVER_SELECTION_TIMEOUT_MS` | API | Optional; defaults to `10000` |
+| `MONGODB_CONNECT_TIMEOUT_MS` | API | Optional; defaults to `10000` |
+| `MONGODB_SOCKET_TIMEOUT_MS` | API | Optional; defaults to `30000` |
+| `JWT_EXPIRES_IN` | API | Optional; defaults to `30d` |
+| `AUTH_COOKIE_DAYS` | API | Optional; defaults to `30` |
+| `GEMINI_MODEL` | API | Optional; defaults to `gemini-2.5-flash` |
+| `CHATGROQ_MODEL` | API | Optional; defaults to `llama-3.3-70b-versatile` |
+| `LLM_PROVIDER_TIMEOUT_MS` | API | Optional; defaults to `12000` |
+| `NEXT_PUBLIC_API_BASE_URL` | Web | Optional; defaults to `http://localhost:4000` |
 
 ## Local Development
 
-Backend:
+### Prerequisites
+
+- Node.js 20.9 or later and npm
+- MongoDB connection string for database-backed workflows
+- AI provider credentials for screening and interview features
+
+### Configure
+
+Add the following to `server/.env`, replacing placeholders with local values:
+
 ```bash
+PORT=4000
+CORS_ORIGIN=http://localhost:3000
+MONGODB_URI=mongodb://127.0.0.1:27017/hr_solutions
+JWT_SECRET=replace-with-a-long-random-secret
+GOOGLE_API_KEY=replace-with-your-google-ai-key
+CHATGROQ_API_KEY=replace-with-your-groq-key
+```
+
+For local web development, `NEXT_PUBLIC_API_BASE_URL` may be omitted when the API runs on port `4000`. Set it in `web/.env.local` when the API uses a different address.
+
+### Run
+
+Open two terminals from the repository root:
+
+```bash
+# Terminal 1: API
 cd server
-npm install
+npm ci
 npm run dev
 ```
 
-Frontend:
 ```bash
+# Terminal 2: web app
 cd web
-npm install
+npm ci
 npm run dev
 ```
 
-Build checks:
+Open `http://localhost:3000`. The API health check is available at `http://localhost:4000/health`.
+
+## Deployment
+
+The application can be deployed with the web app on Vercel and the API on Render. MongoDB Atlas provides the production database.
+
+### 1. Deploy the API to Render
+
+1. Create a MongoDB Atlas database, allow connections from Render, and copy its connection string. Render's free outbound IPs may change; if you allow `0.0.0.0/0` in Atlas, use a strong database password.
+2. In Render, create a Blueprint from this GitHub repository and apply the root-level `render.yaml`.
+3. Set `MONGODB_URI` in the Render service to the Atlas connection string. Render generates `JWT_SECRET`; optionally add `GOOGLE_API_KEY` and `CHATGROQ_API_KEY` in the Render service environment for AI features.
+4. After the service deploys, copy its public URL, for example `https://hr-solutions-api.onrender.com`.
+5. Check that opening `<Render URL>/health` returns a healthy response.
+
+### 2. Deploy the web app to Vercel
+
+1. Import the same GitHub repository into Vercel and set the Root Directory to `web`.
+2. Add these environment variables for the Production environment:
+
+   | Variable | Value |
+   | --- | --- |
+   | `NEXT_PUBLIC_API_BASE_URL` | `/api-backend` |
+   | `API_REWRITE_DESTINATION` | The Render API URL from step 4, such as `https://hr-solutions-api.onrender.com` |
+
+3. Deploy the app and open its public URL to verify registration, login, and API access.
+
+The `/api-backend` rewrite keeps API requests and authentication cookies on the web app's origin. The local development setup continues to use `http://localhost:4000`.
+
+**Free-tier note:** Render's free service may sleep when idle, so the first API request can be delayed. Uploaded profile images and company logos are stored on the API filesystem and may not survive a free-service restart or redeploy. Use persistent or object storage before relying on those uploads in production.
+
+### Production Builds
+
+Run the TypeScript API build and Next.js production build independently:
+
 ```bash
-cd server
-npm run build
-
-cd ../web
-npm run build
-````
-
+cd server && npm run build
+cd ../web && npm run build
+```
 
 ## API Surface (High-Level)
 
@@ -287,26 +277,13 @@ Domain routes:
 
 Health check:
 - `/health`
+- `/health`
+## Project Demo
 
-## Known Limitations
+[Watch the project demo on YouTube](https://youtu.be/kYrL_cpoVDo).
 
-- Automated tests are not yet implemented in this repository.
-- Some requirement extraction heuristics in scoring can still be further tuned by domain.
-- Interview and screening explainability can be extended with requirement-level evidence attribution maps.
+## Project Status
 
-## Suggested Next Improvements
-
-1. Add integration tests for end-to-end screening pipeline.
-2. Add requirement-to-evidence attribution in screening results.
-3. Add structured monitoring dashboards for model latency and fallback rates.
-4. Add role-specific scoring presets (for example teaching, research, engineering).
-
-## Evaluation Summary
-
-This project demonstrates practical AI systems engineering:
-- controlled LLM usage
-- deterministic decisioning
-- robust validation/fallback strategies
-- production-aware operational behavior
-
-It is designed to be audited, improved, and deployed incrementally by engineering teams.
+- Automated test coverage is not yet configured.
+- Scoring heuristics and requirement-level evidence attribution can be extended as domain needs evolve.
+- Treat AI-generated extraction and interview feedback as decision support; review outcomes before taking hiring action.

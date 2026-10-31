@@ -41,6 +41,11 @@ export interface CandidateCertification {
   issueDate?: string;
 }
 
+export interface CandidateEvidenceAsset {
+  imageUrl: string;
+  originalName?: string;
+}
+
 export interface CandidateAvailability {
   status?: "available" | "open_to_opportunities" | "not_available";
   type?: "full_time" | "part_time" | "contract";
@@ -68,7 +73,9 @@ export interface CandidateProfile {
   experiences: CandidateExperience[];
   education: CandidateEducation[];
   projects: CandidateProject[];
+  projectAssets?: CandidateEvidenceAsset[];
   certifications: CandidateCertification[];
+  certificationAssets?: CandidateEvidenceAsset[];
   availability?: CandidateAvailability;
   socialLinks?: CandidateSocialLinks;
   resumeText: string; // raw resume text
@@ -206,6 +213,14 @@ const CandidateSocialLinksSchema = new Schema<CandidateSocialLinks>(
   { _id: false, strict: false }
 );
 
+const CandidateEvidenceAssetSchema = new Schema<CandidateEvidenceAsset>(
+  {
+    imageUrl: { type: String, required: true },
+    originalName: { type: String },
+  },
+  { _id: false }
+);
+
 const CandidateProfileSchema = new Schema<CandidateProfile>({
   fullName: { type: String, required: true },
   firstName: { type: String },
@@ -220,7 +235,9 @@ const CandidateProfileSchema = new Schema<CandidateProfile>({
   experiences: { type: [CandidateExperienceSchema], default: [] },
   education: { type: [CandidateEducationSchema], default: [] },
   projects: { type: [CandidateProjectSchema], default: [] },
+  projectAssets: { type: [CandidateEvidenceAssetSchema], default: [] },
   certifications: { type: [CandidateCertificationSchema], default: [] },
+  certificationAssets: { type: [CandidateEvidenceAssetSchema], default: [] },
   availability: { type: CandidateAvailabilitySchema },
   socialLinks: { type: CandidateSocialLinksSchema },
   resumeText: { type: String, required: true },
